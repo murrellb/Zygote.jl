@@ -282,7 +282,7 @@ end
 @inline function broadcast_forward(f, args::Vararg{Any,N}) where N
   out = dual_function(f).(args...)
   T = eltype(out)
-  T <: Union{Dual, Complex{<:Dual}} || return (out, _ -> nothing)
+  T <: Union{Dual, Complex{<:Dual}} || return (f.(args...), _ -> nothing)
   if any(eltype(a) <: Complex for a in args)
     _broadcast_forward_complex(T, out, args...)
   else
