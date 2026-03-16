@@ -3,6 +3,7 @@
 using Zygote, Test, LinearAlgebra
 using Zygote: Params, gradient, forwarddiff
 using FillArrays: Fill
+using OneHotArrays: onehotbatch
 
 @testset "gradient checkpointing" begin
 
@@ -95,6 +96,13 @@ using FillArrays: Fill
         @test y_ref === y
         @test pb_ref(dy) == pb(dy)
     end
+end
+
+@testset "reshape with nothing cotangent" begin
+    W = Float32[1 2; 3 4]
+    x = onehotbatch([1 2; 2 1], 1:2)
+    f(W, x) = sum(abs2, W * reshape(x, size(x, 1), :))
+    @test gradient(W -> f(W, x), W)[1] == gradient(W -> f(W, Array(x)), W)[1]
 end
 
 @testset "misc" begin
