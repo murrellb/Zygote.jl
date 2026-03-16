@@ -413,6 +413,18 @@ global_r = 1
   end
 
   @test gradient(pow_global, 2, 3) == (12, nothing)
+
+  global second_deriv_scale = 3.0
+  scaled_square(x) = x * x * second_deriv_scale
+  scaled_square_grad(x) = gradient(scaled_square, x)[1]
+  @test scaled_square_grad(1.0) == 6.0
+  @test gradient(scaled_square_grad, 1.0) == (6.0,)
+
+  global second_deriv_linear = 5.0
+  quadratic_with_global(x) = 4x^2 + second_deriv_linear * x + 10
+  quadratic_with_global_grad(x) = gradient(quadratic_with_global, x)[1]
+  @test quadratic_with_global_grad(25.0) == 205.0
+  @test gradient(quadratic_with_global_grad, 25.0) == (8.0,)
 end
 
 

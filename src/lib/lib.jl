@@ -82,6 +82,10 @@ function accum_global(cx::Context, ref, x̄)
   return
 end
 
+@_adjoint_keepthunks! function accum_global(cx::Context, ref, x̄)
+  accum_global(cx, ref, x̄), _ -> (nothing, nothing, nothing)
+end
+
 unwrap(x) = x
 
 @_adjoint_keepthunks unwrap(x) = unwrap(x), x̄ -> (accum_param(__context__, x, x̄),)
