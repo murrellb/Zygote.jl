@@ -710,6 +710,15 @@ end
   @test gradient([2 3; 4 5]) do xs
     sum([x^i+y for (i,x) in enumerate(xs), y in xs])
   end == ([8 112; 36 2004],)
+
+  # https://github.com/FluxML/Zygote.jl/issues/1558
+  foo1558 = x -> foldl(getindex, (1, 2), init = x)
+  foo1558_ref = x -> getindex(getindex(x, 1), 2)
+  v1558 = [[1.1, 2.2]]
+  @test gradient(x -> foldl(+, (1, 2), init = x), 3.0) == (1.0,)
+  g1558_ref = gradient(foo1558_ref, v1558)
+  @test gradient(foo1558, v1558) == g1558_ref
+  @test gradient(x -> foldr(+, (1, 2), init = x), 3.0) == (1.0,)
 end
 
 # https://github.com/JuliaDiff/ChainRules.jl/issues/257

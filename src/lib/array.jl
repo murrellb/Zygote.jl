@@ -254,6 +254,77 @@ function reconstruct_if_dict(x̄, _keys)
   return d̄
 end
 
+function _collect_fold_iter(itr)
+  xs, keys = collect_if_dict(itr)
+  collect(xs), _tryaxes(xs), keys
+end
+
+function _foldl_pbs(cx, f, vals, init)
+  acc = init
+  pbs = Vector{Any}(undef, length(vals))
+  for i in eachindex(vals)
+    acc, pbs[i] = _pullback(cx, f, acc, vals[i])
+  end
+  return acc, pbs
+end
+
+function _foldr_pbs(cx, f, vals, init)
+  acc = init
+  pbs = Vector{Any}(undef, length(vals))
+  for i in reverse(eachindex(vals))
+    acc, pbs[i] = _pullback(cx, f, vals[i], acc)
+  end
+  return acc, pbs
+end
+
+function _foldl_iter_pullback(vals, pbs, iter_ax, iter_keys, Δ)
+  Δf = nothing
+  Δacc = Δ
+  Δvals = fill!(Vector{Any}(undef, length(vals)), nothing)
+  for i in reverse(eachindex(vals))
+    pb_out = pbs[i](Δacc)
+    Δf = accum(Δf, pb_out[1])
+    Δacc = pb_out[2]
+    Δvals[i] = accum(Δvals[i], pb_out[3])
+  end
+  Δiter = reconstruct_if_dict(_restore(Δvals, iter_ax), iter_keys)
+  return Δf, Δiter, Δacc
+end
+
+function _foldr_iter_pullback(vals, pbs, iter_ax, iter_keys, Δ)
+  Δf = nothing
+  Δacc = Δ
+  Δvals = fill!(Vector{Any}(undef, length(vals)), nothing)
+  for i in eachindex(vals)
+    pb_out = pbs[i](Δacc)
+    Δf = accum(Δf, pb_out[1])
+    Δvals[i] = accum(Δvals[i], pb_out[2])
+    Δacc = pb_out[3]
+  end
+  Δiter = reconstruct_if_dict(_restore(Δvals, iter_ax), iter_keys)
+  return Δf, Δiter, Δacc
+end
+
+function _pullback(cx::AContext, ::typeof(Core.kwcall), kwargs::NamedTuple{(:init,)}, ::typeof(foldl), f, itr)
+  vals, iter_ax, iter_keys = _collect_fold_iter(itr)
+  y, pbs = _foldl_pbs(cx, f, vals, kwargs.init)
+  function foldl_kw_pullback(Δ)
+    Δf, Δiter, Δinit = _foldl_iter_pullback(vals, pbs, iter_ax, iter_keys, Δ)
+    return (nothing, (init = Δinit,), nothing, Δf, Δiter)
+  end
+  return y, foldl_kw_pullback
+end
+
+function _pullback(cx::AContext, ::typeof(Core.kwcall), kwargs::NamedTuple{(:init,)}, ::typeof(foldr), f, itr)
+  vals, iter_ax, iter_keys = _collect_fold_iter(itr)
+  y, pbs = _foldr_pbs(cx, f, vals, kwargs.init)
+  function foldr_kw_pullback(Δ)
+    Δf, Δiter, Δinit = _foldr_iter_pullback(vals, pbs, iter_ax, iter_keys, Δ)
+    return (nothing, (init = Δinit,), nothing, Δf, Δiter)
+  end
+  return y, foldr_kw_pullback
+end
+
 @adjoint iterate(r::UnitRange, i...) = iterate(r, i...), _ -> nothing
 
 # Iterators
