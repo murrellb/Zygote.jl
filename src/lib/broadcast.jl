@@ -106,7 +106,7 @@ end
 
 @adjoint function broadcasted(::typeof(Base.literal_pow), ::typeof(^), x::Numeric, exp::Val{p}) where p
   y = Base.literal_pow.(^, x, exp)
-  y, ȳ -> (nothing, nothing, ȳ .* p .* conj.(x .^ (p - 1)), nothing)
+  y, ȳ -> (nothing, nothing, _zeropreserving_mul.(ȳ, p .* conj.(x .^ (p - 1))), nothing)
 end
 
 @adjoint broadcasted(::typeof(identity), x::Numeric) = x, Δ -> (nothing, Δ)
@@ -126,7 +126,7 @@ end
   imag.(x), z̄ -> (nothing, im .* real.(z̄))
 
 @adjoint broadcasted(::typeof(abs2), x::Numeric) =
-  abs2.(x), z̄ -> (nothing, 2 .* real.(z̄) .* x)
+  abs2.(x), z̄ -> (nothing, _zeropreserving_mul.(2 .* real.(z̄), x))
 
 @adjoint function broadcasted(::typeof(+), a::AbstractArray{<:Number}, b::Bool)
   y = b === false ? a : a .+ b

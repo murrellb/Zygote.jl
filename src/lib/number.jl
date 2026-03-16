@@ -1,3 +1,13 @@
+@inline function _zeropreserving_mul(x::Number, y::Number)
+    if iszero(x) || iszero(y)
+        return zero(promote_type(typeof(x), typeof(y)))
+    end
+    return x * y
+end
+@inline _zeropreserving_mul(x::AbstractThunk, y) = _zeropreserving_mul(unthunk(x), y)
+@inline _zeropreserving_mul(x, y::AbstractThunk) = _zeropreserving_mul(x, unthunk(y))
+@inline _zeropreserving_mul(x::AbstractThunk, y::AbstractThunk) = _zeropreserving_mul(unthunk(x), unthunk(y))
+
 function ChainRulesCore.rrule(
     ::ZygoteRuleConfig, ::typeof(convert), T::Type{<:Real}, x::Real
 )
@@ -9,10 +19,23 @@ function ChainRulesCore.rrule(
     ::ZygoteRuleConfig, ::typeof(Base.literal_pow), ::typeof(^), x::Number, ::Val{p}
 ) where {p}
     function literal_pow_pullback(Δ)
-        dx = Δ * conj(p * Base.literal_pow(^,x,Val(p-1)))
+        dx = _zeropreserving_mul(unthunk(Δ), conj(p * Base.literal_pow(^, x, Val(p - 1))))
         return (NoTangent(), NoTangent(), dx, NoTangent())
     end
     return Base.literal_pow(^,x,Val(p)), literal_pow_pullback
+end
+
+function ChainRulesCore.rrule(::ZygoteRuleConfig, ::typeof(^), x::Number, p::Number)
+    y = x^p
+    project_x = ChainRulesCore.ProjectTo(x)
+    project_p = ChainRulesCore.ProjectTo(p)
+    function power_pullback(dy)
+        dy_val = unthunk(dy)
+        dx = _zeropreserving_mul(conj(ChainRules._pow_grad_x(x, p, float(y))), dy_val)
+        dp = _zeropreserving_mul(conj(ChainRules._pow_grad_p(x, p, float(y))), dy_val)
+        return (NoTangent(), project_x(dx), @thunk project_p(dp))
+    end
+    return y, power_pullback
 end
 
 function ChainRulesCore.rrule(::ZygoteRuleConfig, T::Type{<:Real}, x::Real)
@@ -47,7 +70,7 @@ end
 # we define these here because ChainRules.jl only defines them for x::Union{Real,Complex}
 
 function ChainRulesCore.rrule(::ZygoteRuleConfig, ::typeof(abs2), x::Number)
-    abs2_pullback(Δ) = (NoTangent(), real(Δ)*(x + x))
+    abs2_pullback(Δ) = (NoTangent(), _zeropreserving_mul(real(unthunk(Δ)), x + x))
     return abs2(x), abs2_pullback
 end
 

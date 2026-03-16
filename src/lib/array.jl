@@ -342,6 +342,22 @@ function _pullback(cx::AContext, ::typeof(prod), f, xs::AbstractArray)
   return _pullback(cx, (f, xs) -> prod(f.(xs)), f, xs)
 end
 
+function ChainRulesCore.rrule(
+  ::ZygoteRuleConfig, ::typeof(sum), ::typeof(abs2), x::AbstractArray{T}; dims = :
+) where {T<:Union{Real,Complex}}
+  y = sum(abs2, x; dims = dims)
+  function sum_abs2_pullback(ȳ)
+    ybar = unthunk(ȳ)
+    dx = _zeropreserving_mul.(2 .* real.(ybar), x)
+    x_thunk = InplaceableThunk(
+      dξ -> dξ .+= dx,
+      @thunk(dx),
+    )
+    return (NoTangent(), NoTangent(), x_thunk)
+  end
+  return y, sum_abs2_pullback
+end
+
 @adjoint real(x::AbstractArray) = real(x), r̄ -> (real(r̄),)
 @adjoint conj(x::AbstractArray) = conj(x), r̄ -> (conj(r̄),)
 @adjoint imag(x::AbstractArray) = imag(x), ī -> (complex.(0, real.(ī)),)

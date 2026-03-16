@@ -9,6 +9,11 @@
 
   @testset "basics" begin
     @test gradient(Base.literal_pow, ^, 3//2, Val(-5))[2] isa Rational
+    # Zero local derivatives should annihilate singular sqrt cotangents instead of producing NaNs.
+    # Covers the generic sqrt-at-zero bug class behind issues #1101 and #1598.
+    @test gradient(x -> sqrt(x^2), 0.0) == (0.0,)
+    @test gradient(x -> sqrt(0.0^x), 4.0) == (0.0,)
+    @test gradient(x -> sqrt(sum(abs2, x)), zeros(2)) == (zeros(2),)
 
     @test gradient(convert, Rational, 3.14) == (nothing, 1.0)
     @test gradient(convert, Rational, 2.3) == (nothing, 1.0)
