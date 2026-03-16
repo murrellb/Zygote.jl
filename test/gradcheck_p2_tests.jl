@@ -8,6 +8,7 @@ using FillArrays
 using AbstractFFTs
 using FFTW
 using Distances
+using ForwardDiff
 using Zygote: gradient, Buffer
 using Base.Broadcast: broadcast_shape
 using Distributed: pmap, CachingPool, workers
@@ -363,6 +364,14 @@ function _gradtest_hermsym(f, ST, A; kwargs...)
   end
 end
 
+function _forwarddiff_matrix_gradtest(f, A; rtol = 1e-5, atol = 1e-5)
+  X = collect(A)
+  obj(v) = f(reshape(v, size(X)))
+  g_zygote = gradient(obj, vec(X))[1]
+  g_forward = ForwardDiff.gradient(obj, vec(X))
+  return isapprox(g_zygote, g_forward; rtol, atol)
+end
+
 @testset "eigen(::RealHermSymComplexHerm)" begin
   MTs = (Symmetric{Float64}, Hermitian{Float64}, Hermitian{ComplexF64})
   rng, N = MersenneTwister(123), 7
@@ -437,9 +446,16 @@ end
         @testset "similar eigenvalues" begin
           λ[1] = λ[3] + sqrt(eps(eltype(λ))) / 10
           A2 = U * Diagonal(λ) * U'
-          broken = f == sqrt && MT <: Symmetric{Float64} && domain == Real
-          # @show f MT domain
-          @test _gradtest_hermsym(f, ST, A2) broken=broken
+          if f == sqrt && MT <: Symmetric{Float64} && domain == Real
+            # Finite differences are unstable here because the repeated eigenvalues make
+            # `sqrt(A)` nearly singular. ForwardDiff agrees with Zygote on this case.
+            @test _forwarddiff_matrix_gradtest(A2) do X
+              B = f(ST(X))
+              return sum(sin.(sum(_splitreim(B))))
+            end
+          else
+            @test _gradtest_hermsym(f, ST, A2)
+          end
         end
 
         if f ∉ (log, sqrt) # only defined for invertible matrices
@@ -544,14 +560,13 @@ end
           return sum(sin.(vcat(vec.(_splitreim(B))...)))
         end === map(_->nothing, _splitreim(A))
       else
-        @static if VERSION >= v"1.11"
-          # @show MT p
-          broken = MT <: Symmetric{Float64} && p == -3
-          @test gradtest(_splitreim(collect(A))...) do (args...)
-            A = ST(_joinreim(_dropimaggrad.(args)...))
-            B = A^p
-            return vcat(vec.(_splitreim(B))...)
-          end broken=broken
+        if MT <: Symmetric{Float64} && p == -3
+          # The naive finite-difference gradcheck is ill-conditioned for this matrix,
+          # but ForwardDiff matches Zygote on the same scalar objective.
+          @test _forwarddiff_matrix_gradtest(A) do X
+            B = ST(X)^p
+            return sum(sin.(vcat(vec.(_splitreim(B))...)))
+          end
         else
           @test gradtest(_splitreim(collect(A))...) do (args...)
             A = ST(_joinreim(_dropimaggrad.(args)...))
