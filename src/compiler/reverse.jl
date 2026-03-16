@@ -264,8 +264,28 @@ struct Primal
   pullbacks::Dict{Variable,Variable}
 end
 
+function simplify_constant_branches!(ir::IR)
+  for b in blocks(ir)
+    brs = branches(b)
+    i = 1
+    while i <= length(brs)
+      br = brs[i]
+      cond = br.condition
+      cond isa Bool || (i += 1; continue)
+      if cond
+        deleteat!(brs, i)
+      else
+        brs[i] = IRTools.Branch(br, condition = nothing)
+        resize!(brs, i)
+        break
+      end
+    end
+  end
+  return ir
+end
+
 function Primal(ir::IR; varargs = nothing)
-  ir = instrument(normalise!(ir))
+  ir = instrument(simplify_constant_branches!(normalise!(ir)))
   pr, brs, pbs = primal(ir)
   Primal(expand!(ir), pr, varargs, brs, pbs)
 end

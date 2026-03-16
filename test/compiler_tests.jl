@@ -253,6 +253,14 @@ end
     @test only(g) ∈ (1., 2.)
 end
 
+function f_1575(in0, in1, in2)
+    (((false && false) && !false) ? in2 + 1 : in2)
+end
+
+@testset "constant short-circuit dead branch" begin
+    @test gradient(f_1575, 1, 2, 3) == (nothing, nothing, 1.0)
+end
+
 function kwlog_repro(x; customgrad = true, show_warnings = false)
     if !customgrad
         if show_warnings
