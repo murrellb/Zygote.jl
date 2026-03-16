@@ -454,11 +454,7 @@ end
 end
 
 @testset "@timed" begin
-  if VERSION >= v"1.11"
-    @test_broken gradient(x -> first(@timed x), 0) == (1,)
-  else
-    @test gradient(x -> first(@timed x), 0) == (1,)
-  end
+  @test gradient(x -> first(@timed x), 0) == (1,)
 end
 
 mutable struct MyMutable

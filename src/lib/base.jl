@@ -220,6 +220,20 @@ function _pullback(cx::AContext, ::typeof(literal_getindex),
 end
 
 # Misc.
+function _pullback(::AContext, ::typeof(getindex), x::Base.Threads.Atomic)
+    return Base.getindex(x), _ -> (nothing, nothing)
+end
+
+function _pullback(::AContext, ::typeof(Base.cumulative_compile_timing), flag::Bool)
+    return Base.cumulative_compile_timing(flag), _ -> (nothing, nothing)
+end
+
+@static if isdefined(Base.Threads, :lock_profiling)
+function _pullback(::AContext, ::typeof(Base.Threads.lock_profiling), flag::Bool)
+    return Base.Threads.lock_profiling(flag), _ -> (nothing, nothing)
+end
+end
+
 @adjoint function Base.getfield(p::Pair, i::Int)
     function pair_getfield_pullback(Δ)
         f, s = i == 1 ? (Δ, nothing) : (nothing, Δ)
