@@ -67,6 +67,27 @@ _droplike(dy::Union{LinearAlgebra.Adjoint, LinearAlgebra.Transpose}, dxv::Abstra
 
 @adjoint getindex(::Type{T}, xs...) where {T} = T[xs...], dy -> (nothing, dy...)
 
+function Zygote._pullback(ctx::AContext, ::typeof(Base.typed_hcat), ::Type{T}, xs...) where T
+  y = Base.typed_hcat(T, xs...)
+  _, back = _pullback(ctx, hcat, xs...)
+  typed_hcat_pullback(Δ) = (nothing, nothing, Base.tail(back(Δ))...)
+  return y, typed_hcat_pullback
+end
+
+function Zygote._pullback(ctx::AContext, ::typeof(Base.typed_vcat), ::Type{T}, xs...) where T
+  y = Base.typed_vcat(T, xs...)
+  _, back = _pullback(ctx, vcat, xs...)
+  typed_vcat_pullback(Δ) = (nothing, nothing, Base.tail(back(Δ))...)
+  return y, typed_vcat_pullback
+end
+
+function Zygote._pullback(ctx::AContext, ::typeof(Base.typed_hvcat), ::Type{T}, rows::Tuple, xs...) where T
+  y = Base.typed_hvcat(T, rows, xs...)
+  _, back = _pullback(ctx, hvcat, rows, xs...)
+  typed_hvcat_pullback(Δ) = (nothing, nothing, nothing, Base.tail(Base.tail(back(Δ)))...)
+  return y, typed_hvcat_pullback
+end
+
 _throw_mutation_error(f, args...) = error("""
 Mutating arrays is not supported -- called $f($(join(map(typeof, args), ", ")), ...)
 This error occurs when you ask Zygote to differentiate operations that change

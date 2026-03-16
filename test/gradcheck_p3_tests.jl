@@ -113,6 +113,7 @@ end
   # Scalar
   @test gradient((x,y) -> sum(vcat(x,y)), 1,2) == (1,1)
   @test gradient((x,y) -> sum([x;y]), 1,2) == (1,1)
+  @test gradient(x -> Float32[1; x[1]][2], Float32[42]) == ([1.0f0],)
 
   # Scalar + Vector
   @test gradient(x -> sum(vcat(x, 1, x)), rand(3)) == ([2,2,2],)
@@ -146,6 +147,7 @@ end
   @test gradient((x,y) -> sum(hcat(x,y)), 1,2) == (1,1)
   @test gradient((x,y) -> sum([x y]), 1,2) == (1,1)
   @test gradient((a,b,c,d) -> sum(sqrt, [a b;c d]), 1,1,1,4) == (0.5, 0.5, 0.5, 0.25)
+  @test gradient(x -> Float32[1 0 0 x[1]][4], Float32[42]) == ([1.0f0],)
 
   # Vector-only.
   for r in [1, 2]
@@ -173,6 +175,7 @@ end
   @test gradient(xs -> hvcat((2,2),xs...)[2,2], [1,2,3,4])[1] == [0,0,0,1]
   # https://github.com/FluxML/Zygote.jl/issues/513
   @test gradient(x -> hvcat((2,2),1,2,3,x)[4], 4.0) == (1.0,)
+  @test gradient(x -> Float32[1 2; 3 x[1]][4], Float32[42]) == ([1.0f0],)
 end
 
 @testset "cat(..., dims = $dim)" for dim in 1:5
