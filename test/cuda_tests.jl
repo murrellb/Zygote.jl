@@ -2,6 +2,7 @@
 
 using LinearAlgebra
 using CUDA
+using SparseArrays
 using Zygote: Grads
 using Random: randn!
 import FiniteDifferences
@@ -82,6 +83,14 @@ end
   g3_gpu = gradient(f3, a_gpu')[1]
   @test g3_gpu isa Adjoint{Float32, <:CuArray{Float32, 1}}  # preserves structure
   @test g3_gpu |> collect ≈ g3
+
+  # https://github.com/FluxML/Zygote.jl/issues/1537
+  logpos(x) = x > 0 ? log(x) : zero(x)
+  A_sparse = sprandn(Float32, 10, 10, 0.4)
+  A_gpu_sparse = sparse(CuArray(A_sparse))
+  dA_gpu_sparse = gradient(x -> sum(logpos.(x)), A_gpu_sparse)[1]
+  @test dA_gpu_sparse isa CUDA.CUSPARSE.CuSparseMatrixCSC{Float32}
+  @test Array(dA_gpu_sparse) ≈ Array(gradient(x -> sum(logpos.(x)), A_sparse)[1])
 end
 
 @testset "jacobian" begin
