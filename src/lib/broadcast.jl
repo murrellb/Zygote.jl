@@ -356,6 +356,25 @@ end
 
 using GPUArraysCore  # replaces @require CUDA block, weird indenting to preserve git blame
 
+  # ChainRules already has a good scalar-rule fast path for `sum(f, xs)` via
+  # `derivatives_given_output`. Prefer it on GPU when the scalar derivative is
+  # inferrable, and only fall back to the old broadcast-forward route otherwise.
+  @inline function _gpu_sum_uses_input_only(f::F, ::Type{xT}) where {F,xT}
+    gT = Core.Compiler.return_type(ChainRulesCore.derivatives_given_output, Tuple{Nothing, F, xT})
+    return isconcretetype(gT) && gT <: Tuple{Tuple{Number}}
+  end
+
+  @inline _gpu_sum_abs_sign(x::Real) = sign(x)
+  @inline _gpu_sum_abs_sign(x::Complex) = x / ifelse(iszero(x), one(abs(x)), abs(x))
+
+  @inline function _gpu_sum_abs_pullback(xs::AbstractGPUArray, dy; dims=:)
+    broadcast_dy = dims isa Colon ? Ref(unthunk(dy)) : unthunk(dy)
+    dxs = broadcast(broadcast_dy, xs) do dyk, xk
+      _gpu_sum_abs_sign(xk) * real(dyk)
+    end
+    return _project(xs, dxs)
+  end
+
        # Ordinary broadcasting calls broadcast_forward anyway when certain its' safe,
        # so perhaps this can be deleted? Possible edge case here:
        # https://github.com/FluxML/Zygote.jl/pull/1018#issuecomment-873629415
@@ -365,18 +384,38 @@ using GPUArraysCore  # replaces @require CUDA block, weird indenting to preserve
   @adjoint (::Type{T})(xs::Array) where {T <: AbstractGPUArray} =
     T(xs), Δ -> (convert(Array, Δ), )
 
+  function _pullback(cx::AContext, ::typeof(sum), ::typeof(abs), xs::AbstractGPUArray)
+    y = sum(abs, xs)
+    sum_gpuarray_abs_pullback(dy) = (nothing, nothing, _gpu_sum_abs_pullback(xs, dy))
+    return y, sum_gpuarray_abs_pullback
+  end
+  function _pullback(cx::AContext, ::Core.kwftype(typeof(sum)), kws, ::typeof(sum),
+                     ::typeof(abs), xs::AbstractGPUArray)
+    @assert !haskey(kws, :init) # TODO add init support (julia 1.6)
+    dims = get(kws, :dims, :)
+    sum_gpuarray_abs_kw_pullback(dy) = (nothing, nothing, nothing, nothing,
+                                        _gpu_sum_abs_pullback(xs, dy; dims=dims))
+    return sum(abs, xs; kws...), sum_gpuarray_abs_kw_pullback
+  end
+
   # Make sure sum(f, ::CuArray) uses broadcast through forward-mode defined above
   # Not the ChainRules.rrule which will use the Zygote.Context and thus not be GPU compatible
   function _pullback(cx::AContext, ::typeof(sum), f, xs::AbstractGPUArray)
+    if _gpu_sum_uses_input_only(f, eltype(xs))
+      return chain_rrule(ZygoteRuleConfig(cx), sum, f, xs)
+    end
     res, back = _pullback(cx, (f, xs) -> sum(f.(xs)), f, xs)
     return res, back ∘ unthunk_tangent
   end
   function _pullback(cx::AContext, ::Core.kwftype(typeof(sum)), kws, ::typeof(sum), f,
                      xs::AbstractGPUArray)
+    if !haskey(kws, :init) && _gpu_sum_uses_input_only(f, eltype(xs))
+      return chain_rrule_kw(ZygoteRuleConfig(cx), Core.kwftype(typeof(sum)), kws, sum, f, xs)
+    end
     @assert !haskey(kws, :init) # TODO add init support (julia 1.6)
     res, back = _pullback(cx, (f, xs) -> sum(f.(xs); kws...), f, xs)
-    sum_gpuarray_kw_pullback(Δ) = (nothing, nothing, back(unthunk_tangent(Δ))...)
-    return res, sum_gpuarray_kw_pullback
+    sum_gpuarray_fwd_pullback(Δ) = (nothing, nothing, back(unthunk_tangent(Δ))...)
+    return res, sum_gpuarray_fwd_pullback
   end
 
   @adjoint function Base.convert(::Type{T}, xs::Array)  where {T<:AbstractGPUArray}

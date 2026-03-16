@@ -71,6 +71,10 @@ end
   @test g_gpu isa CuArray
   @test g_gpu |> collect ≈ g
 
+  # https://github.com/FluxML/Zygote.jl/issues/1529
+  @test gradient(f, cu(Float32[0]))[1] |> collect == Float32[0]
+  @test gradient(f, cu(ComplexF32[0 + 0im]))[1] |> collect == ComplexF32[0 + 0im]
+
   f2(x) = sum(abs2, x)  # sum(abs2, x) has its own rrule
   g2 = gradient(f2, a)[1]
   g2_gpu = gradient(f2, a_gpu)[1]
