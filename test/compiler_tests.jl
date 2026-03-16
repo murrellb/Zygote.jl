@@ -216,7 +216,8 @@ end
 
 
     # Const properties on modules should be lowered as-is (not differentiated)
-    @test gradient(usesmod, 1)[1] == 1.0 broken=VERSION >= v"1.12"
+    @test gradient(usesmod, 1)[1] == 1.0
+    # Julia 1.12 widens inference here; the gradient value is still correct.
     @test @inferred(gradient(usesmod, 1))[1] == 1.0 broken=VERSION >= v"1.12"
 end
 
@@ -250,6 +251,28 @@ end
     local g
     @test_nowarn g = back(1.)
     @test only(g) ∈ (1., 2.)
+end
+
+function kwlog_repro(x; customgrad = true, show_warnings = false)
+    if !customgrad
+        if show_warnings
+            @warn "Forcing customgrad to false"
+        end
+        customgrad = false
+    end
+    return customgrad ? x^2 : x^3
+end
+
+@testset "keyword wrapper logging" begin
+    @test gradient(x -> kwlog_repro(x; customgrad = true, show_warnings = false), 2.0) == (4.0,)
+
+    # Exercise the synthesized default-argument wrapper directly.
+    wrapper_name = only(filter(names(@__MODULE__; all = true)) do sym
+        name = String(sym)
+        startswith(name, "#kwlog_repro#")
+    end)
+    wrapper = getfield(@__MODULE__, wrapper_name)
+    @test gradient(x -> wrapper(true, false, kwlog_repro, x), 2.0) == (4.0,)
 end
 
 function throws_and_catches_if_x_negative(x,y)

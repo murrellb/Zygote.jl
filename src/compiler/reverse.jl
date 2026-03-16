@@ -39,6 +39,8 @@ unwrapquote(x) = x
 unwrapquote(x::QuoteNode) = x.value
 
 is_getproperty(ex) = iscall(ex, Base, :getproperty)
+is_getglobal(ex) = iscall(ex, Core, :getglobal)
+is_setglobal(ex) = iscall(ex, Base, :setglobal!) || iscall(ex, Core, :setglobal!)
 
 # The initial premise of literal_getproperty was in some ways inherently flawed, because for
 # getproperty it was intended that _pullback falls back to literal_getproperty, but we actually
@@ -61,6 +63,32 @@ function instrument_getproperty!(ir, v, ex)
     else
       f = insert!(ir, v, :(Val($(prop))))
       ir[v] = xcall(Zygote, :literal_getproperty, obj, f)
+    end
+  else
+    ex
+  end
+end
+
+function instrument_getglobal!(ir, v, ex)
+  if is_getglobal(ex)
+    mod, name = ex.args[2], ex.args[3]
+    if mod isa Module && name isa QuoteNode
+      ir[v] = xcall(Zygote, :unwrap, QuoteNode(GlobalRef(mod, unwrapquote(name))), ex)
+    else
+      ex
+    end
+  else
+    ex
+  end
+end
+
+function instrument_setglobal!(ir, v, ex)
+  if is_setglobal(ex)
+    mod, name, val = ex.args[2], ex.args[3], ex.args[4]
+    if mod isa Module && name isa QuoteNode
+      ir[v] = xcall(Zygote, :global_set, QuoteNode(GlobalRef(mod, unwrapquote(name))), val)
+    else
+      ex
     end
   else
     ex
@@ -107,6 +135,8 @@ end
 
 function instrument_literals!(ir, v, ex)
   ex = instrument_getproperty!(ir, v, ex)
+  ex = instrument_getglobal!(ir, v, ex)
+  ex = instrument_setglobal!(ir, v, ex)
   ex = instrument_getfield!(ir, v, ex)
   ex = instrument_getindex!(ir, v, ex)
   ex = instrument_iterate!(ir, v, ex)

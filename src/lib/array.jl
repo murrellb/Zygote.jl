@@ -531,12 +531,31 @@ _hasrealdomain(::typeof(^), x) = all(x -> x ≥ 0, x)
 _process_series_eigvals(f, λ) = _hasrealdomain(f, λ) ? λ : complex.(λ)
 
 _process_series_matrix(f, fA, A, fλ) = fA
-_process_series_matrix(f, fA, ::LinearAlgebra.HermOrSym{<:Real}, fλ) = Symmetric(fA)
+_process_series_matrix(f, fA, ::Symmetric{<:Real}, fλ) = Symmetric(fA)
 _process_series_matrix(f, fA, ::Hermitian{<:Complex}, ::AbstractVector{<:Real}) =
   Hermitian(_realifydiag!(fA))
 _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, fλ) = Hermitian(fA)
-_process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) = fA
 _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Complex}, ::AbstractVector{<:Complex}) = fA
+
+@static if VERSION >= v"1.12"
+  _process_series_matrix(f, fA, ::Hermitian{<:Real}, fλ) = Hermitian(fA)
+  _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) =
+    Symmetric(fA)
+else
+  _process_series_matrix(f, fA, ::Hermitian{<:Real}, fλ) = Symmetric(fA)
+  _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) = fA
+end
+
+_match_chainrules_hermsym_output(y, ::LinearAlgebra.RealHermSymComplexHerm) = y
+@static if VERSION >= v"1.12"
+  _hermsym_uplo(A) = A.uplo isa Symbol ? A.uplo : Symbol(A.uplo)
+  _match_chainrules_hermsym_output(y::Symmetric{<:Real}, A::Hermitian{<:Real}) =
+    Hermitian(parent(y), _hermsym_uplo(y))
+
+  function _match_chainrules_hermsym_output(y::Tuple, A::Hermitian{<:Real})
+    return map(yi -> _match_chainrules_hermsym_output(yi, A), y)
+  end
+end
 
 # Compute function on eigvals, thunks for conjugates of 1st and 2nd derivatives,
 # and function to pull back adjoints to args
@@ -598,6 +617,14 @@ function _pullback(cx::AContext,
                    A::LinearAlgebra.RealHermSymComplexHerm,
                    p::Real)
   return _pullback(cx, (A, p) -> _apply_series_func(f, A, p), A, p)
+end
+
+for f in (:exp, :log, :cos, :sin, :tan, :cosh, :sinh, :tanh,
+          :acos, :asin, :atan, :acosh, :asinh, :atanh, :sqrt, :sincos)
+  @eval function _pullback(cx::AContext, ::typeof($f), A::LinearAlgebra.RealHermSymComplexHerm)
+    y, back = chain_rrule(ZygoteRuleConfig(cx), $f, A)
+    return _match_chainrules_hermsym_output(y, A), back
+  end
 end
 
 # ChainRules has this also but does not use FillArrays, so we have our own definition
