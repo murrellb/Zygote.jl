@@ -57,6 +57,7 @@ end
   # structure restoration:
   @test gradient(x -> sum(sqrt.(x)), a_gpu')[1] isa Adjoint  # previously a matrix
   @test gradient(x -> sum(exp.(x)), Diagonal(a_gpu))[1] isa Diagonal
+  @test gradient(x -> sum(abs2, x) - tr(x), CUDA.zeros(2, 2))[1] |> collect ≈ Float32[-1 0; 0 -1]
   # non-differentiables
   @test gradient((x,y) -> sum(x.^2 .+ y'), a_gpu, a_gpu .> 0)[2] === nothing
 end

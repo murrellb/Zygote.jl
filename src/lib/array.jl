@@ -2,6 +2,7 @@ using Random, FillArrays, AbstractFFTs
 using FillArrays: AbstractFill, getindex_value
 using Base.Broadcast: broadcasted, broadcast_shape
 using Distributed: pmap, AbstractWorkerPool
+using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: Diagonal, Hermitian, LowerTriangular, UpperTriangular
 using LinearAlgebra: UnitLowerTriangular, UnitUpperTriangular
 
@@ -629,12 +630,20 @@ end
 
 # ChainRules has this also but does not use FillArrays, so we have our own definition
 # for improved performance. See https://github.com/JuliaDiff/ChainRules.jl/issues/46
+_trace_cotangent(x::AbstractMatrix, Δ::Number) = Diagonal(Fill(Δ, (size(x, 1), )))
+
+function _trace_cotangent(x::AbstractGPUArray{<:Any, 2}, Δ::Number)
+  d = similar(x, typeof(Δ), size(x, 1))
+  fill!(d, Δ)
+  return Diagonal(d)
+end
+
 Zygote.@adjoint function LinearAlgebra.tr(x::AbstractMatrix)
   # x is a square matrix checked by tr,
   # so we could just use Eye(size(x, 1))
   # to create a Diagonal
   tr(x), function (Δ::Number)
-    (Diagonal(Fill(Δ, (size(x, 1), ))), )
+    (_trace_cotangent(x, Δ), )
   end
 end
 
