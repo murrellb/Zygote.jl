@@ -532,19 +532,25 @@ _process_series_eigvals(f, λ) = _hasrealdomain(f, λ) ? λ : complex.(λ)
 
 _process_series_matrix(f, fA, A, fλ) = fA
 _process_series_matrix(f, fA, ::Symmetric{<:Real}, fλ) = Symmetric(fA)
-_process_series_matrix(f, fA, ::Hermitian{<:Real}, fλ) =
-  VERSION >= v"1.12" ? Hermitian(fA) : Symmetric(fA)
 _process_series_matrix(f, fA, ::Hermitian{<:Complex}, ::AbstractVector{<:Real}) =
   Hermitian(_realifydiag!(fA))
 _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, fλ) = Hermitian(fA)
-_process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) =
-  VERSION >= v"1.12" ? Symmetric(fA) : fA
 _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Complex}, ::AbstractVector{<:Complex}) = fA
 
+@static if VERSION >= v"1.12"
+  _process_series_matrix(f, fA, ::Hermitian{<:Real}, fλ) = Hermitian(fA)
+  _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) =
+    Symmetric(fA)
+else
+  _process_series_matrix(f, fA, ::Hermitian{<:Real}, fλ) = Symmetric(fA)
+  _process_series_matrix(::typeof(^), fA, ::Hermitian{<:Real}, ::AbstractVector{<:Complex}) = fA
+end
+
 _match_chainrules_hermsym_output(y, ::LinearAlgebra.RealHermSymComplexHerm) = y
-if VERSION >= v"1.12"
+@static if VERSION >= v"1.12"
+  _hermsym_uplo(A) = A.uplo isa Symbol ? A.uplo : Symbol(A.uplo)
   _match_chainrules_hermsym_output(y::Symmetric{<:Real}, A::Hermitian{<:Real}) =
-    Hermitian(parent(y), Symbol(y.uplo))
+    Hermitian(parent(y), _hermsym_uplo(y))
 
   function _match_chainrules_hermsym_output(y::Tuple, A::Hermitian{<:Real})
     return map(yi -> _match_chainrules_hermsym_output(yi, A), y)
