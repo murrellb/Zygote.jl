@@ -146,6 +146,31 @@ function unzip(tuples)
   _unzip(tuples, Val(N))
 end
 
+_restore_wrapper(arg, dx) = dx
+_restore_wrapper(arg::LinearAlgebra.AdjointAbsVec, dx::AbstractVector) = Base.adjoint(dx)
+_restore_wrapper(arg::LinearAlgebra.TransposeAbsVec, dx::AbstractVector) = Base.transpose(dx)
+
+_pullback_map(m::typeof(map), cx, f, args...) = map((xs...) -> _pullback(cx, f, xs...), args...)
+function _pullback_map(::typeof(map), cx, f, av::LinearAlgebra.AdjointAbsVec, avs::LinearAlgebra.AdjointAbsVec...)
+  s = (av, avs...)
+  map((xs...) -> _pullback(cx, f, Base.adjoint.(xs)...), parent.(s)...)
+end
+function _pullback_map(::typeof(map), cx, f, tv::LinearAlgebra.TransposeAbsVec, tvs::LinearAlgebra.TransposeAbsVec...)
+  s = (tv, tvs...)
+  map((xs...) -> _pullback(cx, f, Base.transpose.(xs)...), parent.(s)...)
+end
+_pullback_map(m::typeof(pmap), cx, f, args...) = pmap((xs...) -> _pullback(cx, f, xs...), args...)
+
+_map_output(m, ys_and_backs, args...) = map(first, ys_and_backs)
+function _map_output(::typeof(map), ys_and_backs, av::LinearAlgebra.AdjointAbsVec, avs::LinearAlgebra.AdjointAbsVec...)
+  ys = map(first, ys_and_backs)
+  Base.adjoint(Base.adjoint.(ys))
+end
+function _map_output(::typeof(map), ys_and_backs, tv::LinearAlgebra.TransposeAbsVec, tvs::LinearAlgebra.TransposeAbsVec...)
+  ys = map(first, ys_and_backs)
+  Base.transpose(Base.transpose.(ys))
+end
+
 # Reverse iteration order in ∇map, for stateful functions.
 # This is also used by comprehensions, which do guarantee iteration order.
 # Not done for pmap, presumably because all is lost if you are relying on its order.
@@ -185,24 +210,24 @@ last_or_nothing(x) = last(x)
 
 for (mapfunc,∇mapfunc) in [(:map,:∇map),(:pmap,:∇pmap)]
   @eval function $∇mapfunc(cx, f::F, args::Vararg{Any, N}) where {F, N}
-    ys_and_backs = $mapfunc((args...) -> _pullback(cx, f, args...), args...)
-    ys = map(first, ys_and_backs)
+    ys_and_backs = _pullback_map($mapfunc, cx, f, args...)
+    ys = _map_output($mapfunc, ys_and_backs, args...)
     arg_ax = map(_tryaxes, args)
     function map_back(Δ)
       if Base.issingletontype(F) && length(args) == 1
-        Δarg = $mapfunc(((_,pb), δ) -> last_or_nothing(pb(δ)), ys_and_backs, Δ) # No unzip needed
-        (nothing, Δarg)
+        Δarg = map(((_,pb), δ) -> last_or_nothing(pb(δ)), ys_and_backs, Δ) # No unzip needed
+        (nothing, _restore_wrapper(first(args), Δarg))
       elseif Base.issingletontype(F)
         # Ensures `f` is pure: nothing captured & no state.
-        unzipped = _unzip($mapfunc(((_,pb), δ) -> tailmemaybe(pb(δ)), ys_and_backs, Δ), Val(N))
-        Δargs = map(_restore, unzipped, arg_ax)
+        unzipped = _unzip(map(((_,pb), δ) -> tailmemaybe(pb(δ)), ys_and_backs, Δ), Val(N))
+        Δargs = map((dx, arg, ax) -> _restore_wrapper(arg, _restore(dx, ax)), unzipped, args, arg_ax)
         (nothing, Δargs...)
       else
         # Apply pullbacks in reverse order. Needed for correctness if `f` is stateful.
-        Δf_and_args_zipped = $mapfunc(((_,pb), δ) -> pb(δ), _tryreverse($mapfunc, ys_and_backs, Δ)...)
+        Δf_and_args_zipped = map(((_,pb), δ) -> pb(δ), _tryreverse($mapfunc, ys_and_backs, Δ)...)
         Δf_and_args = _unzip(_tryreverse($mapfunc, Δf_and_args_zipped), Val(N + 1))
         Δf = reduce(accum, Δf_and_args[1]; init=nothing)
-        Δargs = map(_restore, Δf_and_args[2:end], arg_ax)
+        Δargs = map((dx, arg, ax) -> _restore_wrapper(arg, _restore(dx, ax)), Δf_and_args[2:end], args, arg_ax)
         (Δf, Δargs...)
       end
     end
