@@ -147,6 +147,16 @@ end
     end
     @test gradient(f_generator_conditional, w)[1] == [ones(5); nothing]
 
+    function f_multidim_generator_conditional(pts)
+        N = length(pts)
+        sum(pts[i] + pts[j] for i in 1:N, j in 1:N if j > i)
+    end
+    @test gradient(pts -> begin
+        N = length(pts)
+        sum(i for i in 1:N, j in 1:N if j > i)
+    end, [0.0, 0.0]) == (nothing,)
+    @test gradient(f_multidim_generator_conditional, [1.0, 2.0, 3.0])[1] == [2.0, 2.0, 2.0]
+
     function f_comprehension_conditional(w)
         d = Dict{Int, Float64}(i => v for (i,v) in enumerate(w) if !isnan(v))
         sum(v for (_, v) in d)

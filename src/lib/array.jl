@@ -274,12 +274,21 @@ end
 _ndims(::Base.HasShape{d}) where {d} = d
 _ndims(x) = Base.IteratorSize(x) isa Base.HasShape ? _ndims(Base.IteratorSize(x)) : 1
 
+function _first_nonnothing(xs)
+  for x in xs
+    x === nothing || return x
+  end
+  return nothing
+end
+
 function productfunc(xs, dy)
-  @assert length(first(dy)) == length(xs)
+  sample = _first_nonnothing(dy)
+  sample === nothing && return map(_ -> nothing, xs)
+  @assert length(sample) == length(xs)
   ndim = map(Zygote._ndims, xs)
   cdim = cumsum((1, ndim[begin:end-1]...))
   getters = ntuple(n -> StaticGetter{n}(), length(xs))
-  map(first(dy), xs, cdim, getters) do dyn, x, cd, getter
+  map(sample, xs, cdim, getters) do dyn, x, cd, getter
     dyn === nothing && return nothing
     nd = _ndims(x)
     dims = nd == 0 ? (:) : ntuple(i -> i<cd ? i : i+nd, Val(ndims(dy)-nd))
