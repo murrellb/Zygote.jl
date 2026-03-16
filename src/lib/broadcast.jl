@@ -271,6 +271,16 @@ function dualize(args::Vararg{Any, N}) where {N}
       return ds
 end
 
+struct DualTypeFunction{F}
+end
+
+@inline function (df::DualTypeFunction{F})(args::Vararg{Any, N}) where {F, N}
+  ds = dualize(args...)
+  return F(ds...)
+end
+
+@inline dual_function(::Type{F}) where F = DualTypeFunction{F}()
+
 @inline function dual_function(f::F) where F
     function (args::Vararg{Any,N}) where N
       ds = dualize(args...)

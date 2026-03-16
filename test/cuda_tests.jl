@@ -59,6 +59,11 @@ end
   @test gradient(x -> sum(exp.(x)), Diagonal(a_gpu))[1] isa Diagonal
   # non-differentiables
   @test gradient((x,y) -> sum(x.^2 .+ y'), a_gpu, a_gpu .> 0)[2] === nothing
+
+  b_gpu = zero.(a_gpu)
+  g_ctor = gradient(x -> sum(real.(Complex.(x, b_gpu))), a_gpu)[1]
+  @test g_ctor isa CuArray
+  @test g_ctor |> collect ≈ ones(Float32, length(a))
 end
 
 @testset "sum(f, x)" begin
