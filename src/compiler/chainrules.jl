@@ -7,6 +7,12 @@
 @inline ZygoteRules.unthunk_tangent(r::Base.RefValue) = r[] = unthunk_tangent(r[])
 ZygoteRules.unthunk_tangent(d::IdDict) = IdDict([unthunk_tangent(k) => unthunk_tangent(v) for (k, v) in d])
 @non_differentiable unthunk_tangent(::IdDict)
+if isdefined(Base, :sym_in)
+  @eval @non_differentiable Base.sym_in(::Symbol, ::Tuple{Vararg{Symbol}})
+end
+if isdefined(Base, :diff_names)
+  @eval @non_differentiable Base.diff_names(::Tuple{Vararg{Symbol}}, ::Tuple{Vararg{Symbol}})
+end
 
 
 struct ZygoteRuleConfig{CTX<:AContext} <: RuleConfig{Union{HasReverseMode,NoForwardsMode}}

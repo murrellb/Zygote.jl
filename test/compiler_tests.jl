@@ -1,7 +1,7 @@
 @testitem "compiler" begin
 
 using LinearAlgebra
-using Zygote: pullback, @adjoint, Context
+using Zygote: pullback, @adjoint, Context, hessian_reverse
 
 macro test_inferred(ex)
   :(let res = nothing
@@ -273,6 +273,14 @@ end
     end)
     wrapper = getfield(@__MODULE__, wrapper_name)
     @test gradient(x -> wrapper(true, false, kwlog_repro, x), 2.0) == (4.0,)
+end
+
+kw_hessian_repro(x; a, b) = x
+
+@testset "keyword wrapper higher order" begin
+    f_kw_hessian(x) = sum(kw_hessian_repro(x; a = [2], b = (3, 1)))
+    @test gradient(f_kw_hessian, Float32[1 2; 3 4; 5 6])[1] == ones(Float32, 3, 2)
+    @test hessian_reverse(f_kw_hessian, Float32[1 2; 3 4; 5 6]) == zeros(Float32, 6, 6)
 end
 
 function throws_and_catches_if_x_negative(x,y)

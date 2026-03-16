@@ -28,6 +28,14 @@ zerolike(x::GlobalRef) = nothing
 @tangent fieldnames(T) = fieldnames(T), _ -> zerolike(fieldnames(T))
 @tangent eltype(x) = eltype(x), ẋ -> zerolike(eltype(ẋ))
 @tangent getglobal(m::Module, s::Symbol) = getglobal(m, s), (_, _) -> nothing
+if isdefined(Base, :sym_in)
+  @eval @tangent Base.sym_in(x::Symbol, itr::Tuple{Vararg{Symbol}}) =
+    Base.sym_in(x, itr), (_, _) -> nothing
+end
+if isdefined(Base, :diff_names)
+  @eval @tangent Base.diff_names(an::Tuple{Vararg{Symbol}}, bn::Tuple{Vararg{Symbol}}) =
+    Base.diff_names(an, bn), (_, _) -> nothing
+end
 if isdefined(Core, :has_free_typevars)
   @eval @tangent Core.has_free_typevars(T) = Core.has_free_typevars(T), _ -> nothing
 end
