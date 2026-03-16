@@ -319,7 +319,7 @@ end
   @test gradient(x -> invoke(invokable, Tuple{Any}, x), 5) == (2,)
 
   y, back = Zygote.pullback(x->tuple(x...), [1, 2, 3])
-  @test back((1, 1, 1)) == ((1,1,1),)
+  @test back((1, 1, 1)) == ([1, 1, 1],)
 end
 
 @testset "nested AD" begin
@@ -750,13 +750,18 @@ end
   # https://github.com/FluxML/Zygote.jl/issues/599
   @test gradient(w -> sum([w...]), [1,1])[1] isa AbstractVector
 
+  # https://github.com/FluxML/Zygote.jl/issues/1522
+  y1522, back1522 = pullback(u -> [u..., 1f0], rand(Float32, 5))
+  @test back1522(ones(Float32, length(y1522)))[1] isa Vector{Float32}
+  @test back1522(ones(Float32, length(y1522)))[1] == ones(Float32, 5)
+
   # https://github.com/FluxML/Zygote.jl/issues/866
   f866(x) = reshape(x, fill(2, 2)...)
   @test gradient(x->sum(f866(x)), rand(4))[1] == [1,1,1,1]
 
   # https://github.com/FluxML/Zygote.jl/issues/731
   f731(x) = sum([x' * x, x...])
-  @test_broken gradient(f731, ones(3)) # MethodError: no method matching +(::Tuple{Float64, Float64, Float64}, ::Vector{Float64})
+  @test gradient(f731, ones(3)) == ([3.0, 3.0, 3.0],)
 end
 
 @testset "accumulation" begin

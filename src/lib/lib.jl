@@ -188,9 +188,11 @@ end
 
 @_adjoint_keepthunks Base.tail(xs::Tuple) = tail(xs), x̄s -> ((nothing, x̄s...),)
 
+_empty(x::AbstractArray) = x
 _empty(x) = length(x)
 _empty(x::Union{Tuple,NamedTuple}) = map(_->nothing, x)
 
+_unapply(t::AbstractArray, xs) = _project(t, xs[1:length(t)]), xs[length(t)+1:end]
 _unapply(t::Integer, xs) = xs[1:t], xs[t+1:end]
 _unapply(t, xs) = first(xs), tail(xs)
 _unapply(t::Tuple{}, xs) = (), xs
