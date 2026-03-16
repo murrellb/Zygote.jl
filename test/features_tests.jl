@@ -754,6 +754,10 @@ end
   f866(x) = reshape(x, fill(2, 2)...)
   @test gradient(x->sum(f866(x)), rand(4))[1] == [1,1,1,1]
 
+  # https://github.com/FluxML/Zygote.jl/issues/1567
+  x1567 = Bool[1 0; 0 1]
+  @test gradient(W -> sum(abs2, W * reshape(x1567, 4, 1)), rand(Float32, 2, 4))[1] isa Matrix{Float32}
+
   # https://github.com/FluxML/Zygote.jl/issues/731
   f731(x) = sum([x' * x, x...])
   @test_broken gradient(f731, ones(3)) # MethodError: no method matching +(::Tuple{Float64, Float64, Float64}, ::Vector{Float64})

@@ -103,8 +103,15 @@ end
 @adjoint PermutedDimsArray(xs, dims) = PermutedDimsArray(xs, dims),
   Δ -> (PermutedDimsArray(Δ, invperm(dims)), nothing)
 
-@adjoint reshape(xs, dims...) = reshape(xs, dims...),
-  Δ -> (reshape(Δ, size(xs)),map(_->nothing,dims)...)
+@adjoint function reshape(xs, dims...)
+  function reshape_pullback(Δ::Nothing)
+    return (nothing, map(_ -> nothing, dims)...)
+  end
+  function reshape_pullback(Δ)
+    return (reshape(Δ, size(xs)), map(_ -> nothing, dims)...)
+  end
+  return reshape(xs, dims...), reshape_pullback
+end
 
 @adjoint function repeat(xs; inner=ntuple(_->1, ndims(xs)), outer=ntuple(_->1, ndims(xs)))
   repeat(xs, inner = inner, outer = outer), function (Δ)
