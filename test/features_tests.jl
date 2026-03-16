@@ -461,6 +461,26 @@ end
   end
 end
 
+@testset "partial new" begin
+  struct PartialNewStruct
+    x::Float64
+    y::Float64
+    PartialNewStruct(x) = new(x)
+  end
+
+  struct PartialNewRefStruct
+    x::Float64
+    y::Vector{Float64}
+    PartialNewRefStruct(x) = new(x)
+  end
+
+  create_and_use_partial_new(x) = (s = PartialNewStruct(x); s.x * 2)
+  create_and_use_partial_new_ref(x) = (s = PartialNewRefStruct(x); s.x * 2)
+
+  @test gradient(create_and_use_partial_new, 2.0) == (2.0,)
+  @test gradient(create_and_use_partial_new_ref, 2.0) == (2.0,)
+end
+
 mutable struct MyMutable
   value::Float64
 end

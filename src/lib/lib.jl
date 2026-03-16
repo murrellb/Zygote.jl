@@ -303,44 +303,44 @@ end
   end
 end
 
-struct Jnew{T,G,splat}
+struct Jnew{T,G,splat,N}
   g::G
 end
-
-Jnew{T}(g) where T = Jnew{T,typeof(g)}(g)
 
 @_adjoint_keepthunks! function __new__(T, args...)
   x = __new__(T, args...)
   g = !ismutabletype(T) || fieldcount(T) == 0 ? nothing : grad_mut(__context__, x)
-  x, Jnew{T,typeof(g),false}(g)
+  x, Jnew{T,typeof(g),false,length(args)}(g)
 end
 
 @_adjoint_keepthunks! function __splatnew__(T, args)
   x = __splatnew__(T, args)
   g = !ismutabletype(T) || fieldcount(T) == 0 ? nothing : grad_mut(__context__, x)
-  x, Jnew{T,typeof(g),true}(g)
+  x, Jnew{T,typeof(g),true,fieldcount(typeof(args))}(g)
 end
 
 # TODO captured mutables + multiple calls to `back`
-@generated function (back::Jnew{T,G,false})(Δ::Union{NamedTuple,Nothing,RefValue}) where {T,G}
+@generated function (back::Jnew{T,G,false,N})(Δ::Union{NamedTuple,Nothing,RefValue}) where {T,G,N}
   !ismutabletype(T) && Δ == Nothing && return :nothing
+  fields = fieldnames(T)[1:N]
   Δ = G == Nothing ? :Δ :
       Δ <: RefValue ? :(back.g[]) :
       :(accum(back.g[], Δ))
   quote
     x̄ = $Δ
     $(G == Nothing || :(back.g[] = nt_nothing($Δ)))
-    (nothing, $(map(f -> :(x̄.$f), fieldnames(T))...))
+    (nothing, $(map(f -> :(x̄.$f), fields)...))
   end
 end
 
-@generated function (back::Jnew{T,G,true})(Δ::Union{NamedTuple,Nothing,RefValue}) where {T,G}
+@generated function (back::Jnew{T,G,true,N})(Δ::Union{NamedTuple,Nothing,RefValue}) where {T,G,N}
   !ismutabletype(T) && Δ == Nothing && return :nothing
+  fields = fieldnames(T)[1:N]
   Δ = G == Nothing ? :Δ : :(back.g)
   quote
     x̄ = $Δ
     $(G == Nothing || :($Δ = nt_nothing($Δ)))
-    (nothing, ($(map(f -> :(x̄.$f), fieldnames(T))...),))
+    (nothing, ($(map(f -> :(x̄.$f), fields)...),))
   end
 end
 

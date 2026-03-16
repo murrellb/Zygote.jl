@@ -54,11 +54,19 @@ zerolike(x::Core.Box) = isdefined(x, :contents) ? Core.Box(zerolike(x.contents))
 @tangent Core.Compiler.return_type(args...) =
   Core.Compiler.return_type(args...), (_...) -> nothing
 
+@generated function _partial_new_tangent(::Type{T}, ṡ::Tuple{Vararg{Any,N}}) where {T,N}
+  fields = fieldnames(T)
+  vals = map(1:length(fields)) do i
+    i <= N ? :(ṡ[$i]) : :nothing
+  end
+  :(NamedTuple{$fields}(($(vals...),)))
+end
+
 @tangent __new__(T, s...) =
-  __new__(T, s...), (_, ṡ...) -> NamedTuple{fieldnames(T)}(ṡ)
+  __new__(T, s...), (_, ṡ...) -> _partial_new_tangent(T, ṡ)
 
 @tangent __splatnew__(T, s) =
-  __splatnew__(T, s), (_, ṡ) -> NamedTuple{fieldnames(T)}(ṡ)
+  __splatnew__(T, s), (_, ṡ) -> _partial_new_tangent(T, ṡ)
 
 function _pushforward(dargs, ::typeof(Core._apply), f, args...)
   dargs = tail(dargs) # drop self gradient
