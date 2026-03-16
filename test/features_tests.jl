@@ -827,6 +827,17 @@ end
   @test gradient(x -> sum((y->1-y).(x .> 0)), randn(5)) == (nothing,)
   @test gradient(x -> sum(x .- (x .> 0)), randn(5)) == ([1,1,1,1,1],)
 
+  # https://github.com/FluxML/Zygote.jl/issues/1585
+  a1585 = rand(2, 5, 3)
+  b1585 = rand(2, 5, 1, 4)
+  p1585(a, b) = a.x + b.x
+  mwe1585(a, b) = sum(p1585.(a, b))
+  ag1585 = NamedTuple{(:x,)}.(tuple.(a1585))
+  bg1585 = NamedTuple{(:x,)}.(tuple.(b1585))
+  g1585 = gradient(mwe1585, ag1585, bg1585)
+  @test getfield.(g1585[1], :x) == fill(4.0, size(a1585))
+  @test getfield.(g1585[2], :x) == fill(3.0, size(b1585))
+
   @test gradient(x -> sum(x ./ [1,2,4]), [1,2,pi]) == ([1.0, 0.5, 0.25],)
   @test gradient(x -> sum(map(/, x, [1,2,4])), [1,2,pi]) == ([1.0, 0.5, 0.25],)
 

@@ -53,14 +53,21 @@ function Base.reducedim_init(::typeof(identity), ::typeof(accum), A::AbstractArr
   Base.reducedim_initarray(A, region, nothing, Union{Nothing,eltype(A)})
 end
 
+@inline function _reshape_unbroadcast(x::AbstractArray, x̄::AbstractArray)
+  axes(x̄) == axes(x) && return x̄
+  length(x) == length(x̄) || return x̄
+  all(size(x̄, d) == 1 for d in ndims(x)+1:ndims(x̄)) || return x̄
+  reshape(x̄, size(x))
+end
+
 function unbroadcast(x::AbstractArray, maybethunked_x̄)
   x̄ = unthunk_tangent(maybethunked_x̄)
   N = ndims(x̄)
   if length(x) == length(x̄)
-    _project(x, x̄)  # ProjectTo handles reshape, offsets, structured matrices, row vectors
+    _project(x, _reshape_unbroadcast(x, x̄))  # ProjectTo handles offsets and structured matrices
   else
     dims = ntuple(d -> size(x, d) == 1 ? d : ndims(x̄)+1, ndims(x̄))
-    _project(x, accum_sum(x̄; dims = dims))
+    _project(x, _reshape_unbroadcast(x, accum_sum(x̄; dims = dims)))
   end
 end
 unbroadcast(x::Number, x̄) = accum_sum(x̄)
