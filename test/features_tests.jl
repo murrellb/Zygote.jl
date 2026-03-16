@@ -827,6 +827,13 @@ end
   @test gradient(x -> sum((y->1-y).(x .> 0)), randn(5)) == (nothing,)
   @test gradient(x -> sum(x .- (x .> 0)), randn(5)) == ([1,1,1,1,1],)
 
+  # https://github.com/FluxML/Zygote.jl/issues/1602
+  generate_i(i, a, d) = ifelse(i == 1, a, d)
+  y1602, pb1602 = Zygote.pullback((a, d) -> generate_i.(1:3, a, d), 0.2, 0.5)
+  @test y1602 == [0.2, 0.5, 0.5]
+  @test pb1602(ones(3)) == (1.0, 2.0)
+  @test gradient((a, d) -> sum(generate_i.(1:3, a, d)), 0.2, 0.5) == (1.0, 2.0)
+
   @test gradient(x -> sum(x ./ [1,2,4]), [1,2,pi]) == ([1.0, 0.5, 0.25],)
   @test gradient(x -> sum(map(/, x, [1,2,4])), [1,2,pi]) == ([1.0, 0.5, 0.25],)
 

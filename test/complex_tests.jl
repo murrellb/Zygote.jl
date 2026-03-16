@@ -25,6 +25,11 @@ using LinearAlgebra
     # https://github.com/FluxML/Zygote.jl/issues/705
     @test gradient(x -> imag(sum(exp, x)), [1,2,3])[1] ≈ real(im .* exp.(1:3))
     @test gradient(x -> imag(sum(exp, x)), [1+0im,2,3])[1] ≈ im .* exp.(1:3)
+
+    # https://github.com/FluxML/Zygote.jl/issues/1601
+    cpx(l, x) = real(l) + x
+    f1601(x) = sum(@. real(cpx(im + x, x)))
+    @test gradient(f1601, ones(10))[1] == fill(2.0, 10)
 end
 
 fs_C_to_R = (real,

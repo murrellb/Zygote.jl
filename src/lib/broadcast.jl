@@ -251,107 +251,127 @@ import ForwardDiff
 using ForwardDiff: Dual, Partials, value, partials
 
 
-# We do this because it ensures type stability so it compiles nicely on the gpu
-# The val is needed for some type stability
-@inline dual(x, i, ::Val{N}) where {N} = x
-@inline dual(x::Bool, i, ::Val{N}) where {N} = x
-@inline dual(x::Real, i, ::Val{N}) where {N} = Dual(x, ntuple(==(i), N))
-# For complex since ForwardDiff.jl doesn't play nicely with complex numbers we
-# construct a Complex dual number and tag the real and imaginary parts separately
-@inline function dual(x::Complex{T}, i, ::Val{N}) where {T,N}
-    re_dual = Dual(real(x), ntuple(==(i), 2N))
-    im_dual = Dual(imag(x), ntuple(==(N+i), 2N))
-    return Complex(re_dual, im_dual)
-end
+# We do this because it ensures type stability so it compiles nicely on the gpu.
+# Non-differentiable numeric control arguments (for example integer indices in
+# predicates) are intentionally left primal-only.
+_dual_slotcount_type(::Type{<:AbstractRange}) = 0
+_dual_slotcount_type(::Type{<:Numeric{Bool}}) = 0
+_dual_slotcount_type(::Type{<:Numeric{<:Real}}) = 1
+_dual_slotcount_type(::Type{<:Numeric{<:Complex}}) = 2
+_dual_slotcount_type(::Type{<:Ref{<:Numeric{Bool}}}) = 0
+_dual_slotcount_type(::Type{<:Ref{<:Numeric{<:Real}}}) = 1
+_dual_slotcount_type(::Type{<:Ref{<:Numeric{<:Complex}}}) = 2
+_dual_slotcount_type(::Type) = 0
 
-function dualize(args::Vararg{Any, N}) where {N}
-    ds = map(args, ntuple(identity,N)) do x, i
-        return dual(x, i, Val(N))
-      end
-      return ds
-end
-
-@inline function dual_function(f::F) where F
-    function (args::Vararg{Any,N}) where N
-      ds = dualize(args...)
-      return f(ds...)
-    end
+@generated function _dual_metadata(args::Vararg{Any,N}) where N
+  widths = map(_dual_slotcount_type, args)
+  offsets = Int[]
+  offset = 1
+  for width in widths
+    push!(offsets, offset)
+    offset += width
   end
+  quote
+    Val($(offset - 1)),
+    Val($(Expr(:tuple, map(x -> :($x), offsets)...))),
+    Val($(Expr(:tuple, map(x -> :($x), widths)...)))
+  end
+end
 
+@inline dual(x, offset, ::Val{N}) where {N} = x
+@inline dual(x::Bool, offset, ::Val{N}) where {N} = x
+@inline dual(x::Real, offset, ::Val{N}) where {N} = Dual(x, ntuple(==(offset), N))
+
+# For complex values since ForwardDiff.jl doesn't play nicely with complex numbers we
+# construct a Complex dual number and tag the real and imaginary parts separately.
+@inline function dual(x::Complex{T}, offset, ::Val{N}) where {T<:Real,N}
+  re_dual = Dual(real(x), ntuple(==(offset), N))
+  im_dual = Dual(imag(x), ntuple(==(offset + 1), N))
+  return Complex(re_dual, im_dual)
+end
+
+@generated function _static_tuple(::Val{xs}) where xs
+  Expr(:tuple, map(x -> :($x), xs)...)
+end
+
+@generated function dualize(args::NTuple{N,Any}, ::Val{offsets}, ::Val{widths}, valN) where {N,offsets,widths}
+  exprs = map(1:N) do i
+    widths[i] == 0 ? :(args[$i]) : :(dual(args[$i], $(offsets[i]), valN))
+  end
+  Expr(:tuple, exprs...)
+end
+
+@inline function dual_function(f::F, valN, val_offsets, val_widths) where F
+  function (args::Vararg{Any,N}) where N
+    ds = dualize(args, val_offsets, val_widths, valN)
+    return f(ds...)
+  end
+end
+
+@inline function _broadcast_forward_back(width::Integer, x, offset, ȳ, out)
+  width == 0 && return nothing
+  if width == 1
+    return unbroadcast(x, broadcast((y1, o1) -> y1 * partials(o1, offset), ȳ, out))
+  else
+    return unbroadcast(x, broadcast((y1, o1) -> y1 * Complex(partials(o1, offset), partials(o1, offset + 1)), ȳ, out))
+  end
+end
+
+# If we assume that
+# f(x + iy) = u(x,y) + iv(x,y)
+# then we do the following for the adjoint
+# Δu ∂u/∂x + Δv∂v/∂x + i(Δu∂u/∂y + Δv ∂v/∂y )
+# this follows https://juliadiff.org/ChainRulesCore.jl/stable/maths/complex.html
+function _adjoint_complex(Δz, df, offset)
+  Δu, Δv = reim(Δz)
+  du, dv = reim(df)
+  return Complex(
+    Δu * partials(du, offset) + Δv * partials(dv, offset),
+    Δu * partials(du, offset + 1) + Δv * partials(dv, offset + 1),
+  )
+end
+
+@inline function _broadcast_forward_back_complex(width::Integer, x, offset, ȳ, out)
+  width == 0 && return nothing
+  if width == 1
+    return unbroadcast(x, broadcast((y1, o1) -> real(y1) * partials(real(o1), offset) + imag(y1) * partials(imag(o1), offset), ȳ, out))
+  else
+    return unbroadcast(x, broadcast((y1, o1) -> _adjoint_complex(y1, o1, offset), ȳ, out))
+  end
+end
 
 @inline function broadcast_forward(f, args::Vararg{Any,N}) where N
-  out = dual_function(f).(args...)
+  valN, val_offsets, val_widths = _dual_metadata(args...)
+  out = dual_function(f, valN, val_offsets, val_widths).(args...)
   T = eltype(out)
   T <: Union{Dual, Complex{<:Dual}} || return (out, _ -> nothing)
-  if any(eltype(a) <: Complex for a in args)
-    _broadcast_forward_complex(T, out, args...)
-  else
-    _broadcast_forward(T, out, args...)
-  end
+  offsets = _static_tuple(val_offsets)
+  widths = _static_tuple(val_widths)
+  _broadcast_forward(T, out, args, offsets, widths)
 end
 
-# Real input and real output pullback
-@inline function _broadcast_forward(::Type{<:Dual}, out, args::Vararg{Any, N}) where {N}
-  valN = Val(N)
+# Real output pullback
+@inline function _broadcast_forward(::Type{<:Dual}, out, args::NTuple{N,Any}, offsets, widths) where N
   y = broadcast(x -> value(x), out)
   function bc_fwd_back(ȳ)
-    dargs = ntuple(valN) do i
-      unbroadcast(args[i], broadcast((y1, o1) -> y1 * partials(o1,i), ȳ, out))
+    dargs = ntuple(Val(N)) do i
+      _broadcast_forward_back(widths[i], args[i], offsets[i], ȳ, out)
     end
     (nothing, nothing, dargs...) # nothings for broadcasted & f
   end
   return y, bc_fwd_back
 end
 
-# This handles the complex output and real input pullback
-@inline function _broadcast_forward(::Type{<:Complex}, out, args::Vararg{Any, N}) where {N}
-    valN = Val(N)
-    y = broadcast(x -> Complex(value(real(x)), value(imag(x))), out)
-    function bc_fwd_back(ȳ)
-      dargs = ntuple(valN) do i
-        unbroadcast(args[i], broadcast((y1, o1) -> (real(y1)*partials(real(o1),i) + imag(y1)*partials(imag(o1), i)), ȳ, out))
-      end
-      (nothing, nothing, dargs...) # nothings for broadcasted & f
+# Complex output pullback
+@inline function _broadcast_forward(::Type{<:Complex}, out, args::NTuple{N,Any}, offsets, widths) where N
+  y = broadcast(x -> Complex(value(real(x)), value(imag(x))), out)
+  function bc_fwd_back(ȳ)
+    dargs = ntuple(Val(N)) do i
+      _broadcast_forward_back_complex(widths[i], args[i], offsets[i], ȳ, out)
     end
-    return y, bc_fwd_back
+    (nothing, nothing, dargs...) # nothings for broadcasted & f
   end
-
-# This handles complex input and real output. We use the gradient definition from ChainRules here
-# since it agrees with what Zygote did for real(x).
-@inline function _broadcast_forward_complex(::Type{<:Dual}, out, args::Vararg{Any, N}) where {N}
-    valN = Val(N)
-    y = broadcast(x -> value(x), out)
-    function bc_fwd_back(ȳ)
-      dargs = ntuple(valN) do i
-        unbroadcast(args[i], broadcast((y1, o1) -> y1 * Complex(partials(o1, i), partials(o1, i+N)), ȳ, out))
-      end
-      (nothing, nothing, dargs...) # nothings for broadcasted & f
-    end
-    return y, bc_fwd_back
-end
-
-# # # This is for complex input and complex output
-# If we assume that
-# f(x + iy) = u(x,y) + iv(x,y)
-# then we do the following for the adjoint
-# Δu ∂u/∂x + Δv∂v/∂x + i(Δu∂u/∂y + Δv ∂v/∂y )
-# this follows https://juliadiff.org/ChainRulesCore.jl/stable/maths/complex.html
-function _adjoint_complex(N, Δz, df, i)
-    Δu, Δv = reim(Δz)
-    du, dv = reim(df)
-    return Complex(Δu*partials(du, i) + Δv*partials(dv, i), Δu*partials(du, i+N) + Δv*partials(dv, i+N))
-end
-
-@inline function _broadcast_forward_complex(::Type{<:Complex}, out, args::Vararg{Any, N}) where {N}
-    valN = Val(N)
-    y = broadcast(x -> Complex(value(real(x)), value(imag(x))), out)
-    function bc_fwd_back(ȳ)
-      dargs = ntuple(valN) do i
-        unbroadcast(args[i], broadcast((y1, o1) -> _adjoint_complex(N, y1, o1, i), ȳ, out))
-      end
-      (nothing, nothing, dargs...) # nothings for broadcasted & f
-    end
-    return y, bc_fwd_back
+  return y, bc_fwd_back
 end
 
 using GPUArraysCore  # replaces @require CUDA block, weird indenting to preserve git blame
