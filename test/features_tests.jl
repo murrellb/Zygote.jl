@@ -827,6 +827,10 @@ end
   @test gradient(x -> sum((y->1-y).(x .> 0)), randn(5)) == (nothing,)
   @test gradient(x -> sum(x .- (x .> 0)), randn(5)) == ([1,1,1,1,1],)
 
+  # https://github.com/FluxML/Zygote.jl/issues/1584
+  f1584(t) = sum(((x, i) -> i == 1 ? sum(x) : 0).(t, 1:2))
+  @test gradient(f1584, ([1.0, 2.0], :a)) == (([1.0, 1.0], nothing),)
+
   @test gradient(x -> sum(x ./ [1,2,4]), [1,2,pi]) == ([1.0, 0.5, 0.25],)
   @test gradient(x -> sum(map(/, x, [1,2,4])), [1,2,pi]) == ([1.0, 0.5, 0.25],)
 

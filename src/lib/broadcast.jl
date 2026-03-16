@@ -66,7 +66,8 @@ end
 unbroadcast(x::Number, x̄) = accum_sum(x̄)
 unbroadcast(x::Tuple{<:Any}, x̄) = (accum_sum(x̄),)
 unbroadcast(x::Base.RefValue, x̄) = (x=accum_sum(x̄),)
-unbroadcast(x::Tuple, x̄) =  NTuple{length(x)}(length(x) == length(x̄) ? x̄ : accum_sum(x̄; dims=2:ndims(x̄))) # case length(x) > 1
+@inline _tuple_unbroadcast(xs, ::Val{N}) where N = ntuple(i -> xs[i], Val(N))
+unbroadcast(x::Tuple, x̄) = _tuple_unbroadcast(length(x) == length(x̄) ? x̄ : accum_sum(x̄; dims=2:ndims(x̄)), Val(length(x))) # case length(x) > 1
 unbroadcast(x::Tuple, x̄::Nothing) = nothing
 # fixing issue #1184, not duplicate method, since the above allows for an empty tuple
 unbroadcast(x::Tuple{<:Any}, x̄::Nothing) = nothing
